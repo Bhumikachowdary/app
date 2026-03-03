@@ -1,0 +1,20 @@
+{
+  "PRKAA1": "AMPK",
+  "PRKAA2": "AMPK",
+  "MTOR": "mTOR",
+  "INSR": "Insulin Receptor",
+  "IRS1": "Insulin Receptor Substrate 1",
+  "SLC2A4": "GLUT4",
+  "PPARG": "PPAR Gamma",
+  "GCK": "Glucokinase",
+  "AKT1": "AKT",
+  "PIK3CA": "PI3K",
+  "TNF": "TNF-alpha",
+  "IL6": "Interleukin-6",
+  "FOXO1": "FOXO1",
+  "HNF4A": "HNF4A",
+  "KCNJ11": "KATP Channel",
+  "ABCC8": "Sulfonylurea receptor",
+  "MAPK8": "JNK",
+  "SREBF1": "SREBP1"
+}
