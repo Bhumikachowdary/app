@@ -18,6 +18,7 @@ class Analysis(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     result = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    risk_level = models.CharField(max_length=20, null=True, blank=True)
 
     def __str__(self):
         return f"Analysis {self.id}"

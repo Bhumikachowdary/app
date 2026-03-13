@@ -1,20 +1,23 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import RegisterSerializer, LoginSerializer
+from rest_framework.permissions import IsAuthenticated
 from django.core.mail import send_mail
 from django.contrib.auth.models import User
+from .serializers import (
+    RegisterSerializer,
+    LoginSerializer,
+    ForgotPasswordSerializer,
+    VerifyOTPSerializer,
+    ResetPasswordSerializer
+)
 from .models import PasswordResetOTP
-from .serializers import ForgotPasswordSerializer, VerifyOTPSerializer, ResetPasswordSerializer
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
 import random
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 
 
+# =======================
+# REGISTER
+# =======================
 class RegisterView(APIView):
 
     def post(self, request):
@@ -22,13 +25,17 @@ class RegisterView(APIView):
 
         if serializer.is_valid():
             serializer.save()
-            return Response({
-                "message": "User registered successfully"
-            }, status=status.HTTP_201_CREATED)
+            return Response(
+                {"message": "User registered successfully"},
+                status=status.HTTP_201_CREATED
+            )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+# =======================
+# LOGIN
+# =======================
 class LoginView(APIView):
 
     def post(self, request):
@@ -38,34 +45,60 @@ class LoginView(APIView):
             return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# =======================
+# FORGOT PASSWORD (SEND OTP)
+# =======================
 class ForgotPasswordView(APIView):
 
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
-        if serializer.is_valid():
 
+        if serializer.is_valid():
             email = serializer.validated_data['email']
 
-            try:
-                user = User.objects.get(email=email)
-            except User.DoesNotExist:
-                return Response({"error": "User not found"}, status=404)
+            # Safe lookup (avoids MultipleObjectsReturned)
+            user = User.objects.filter(email=email).first()
 
+            if not user:
+                return Response({"error": "User not found"}, status=400)
+
+            # Generate OTP
             otp = str(random.randint(100000, 999999))
 
+            # Delete old OTPs
+            PasswordResetOTP.objects.filter(user=user).delete()
+
+            # Save new OTP
             PasswordResetOTP.objects.create(user=user, otp=otp)
 
-            send_mail(
-                'Password Reset OTP',
-                f'Your OTP is {otp}',
-                'yourgmail@gmail.com',
-                [email],
-                fail_silently=False,
-            )
+            try:
+                send_mail(
+                    'Password Reset OTP',
+                    f'Your OTP is {otp}',
+                    'kankanampatibhumika1111@gmail.com',
+                    [email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                print("Email error:", e)
+                return Response(
+                    {
+                        "message": "OTP created but email sending failed.",
+                        "otp_for_testing": otp
+                    },
+                    status=200
+                )
 
             return Response({"message": "OTP sent to email"}, status=200)
 
         return Response(serializer.errors, status=400)
+
+
+# =======================
+# VERIFY OTP
+# =======================
 class VerifyOTPView(APIView):
 
     def post(self, request):
@@ -75,18 +108,24 @@ class VerifyOTPView(APIView):
             email = serializer.validated_data['email']
             otp = serializer.validated_data['otp']
 
-            try:
-                user = User.objects.get(email=email)
-                otp_obj = PasswordResetOTP.objects.filter(user=user, otp=otp).last()
-            except:
-                return Response({"error": "Invalid OTP"}, status=400)
+            user = User.objects.filter(email=email).first()
+
+            if not user:
+                return Response({"error": "User not found"}, status=400)
+
+            otp_obj = PasswordResetOTP.objects.filter(user=user, otp=otp).last()
 
             if otp_obj:
                 return Response({"message": "OTP verified"}, status=200)
             else:
-                return Response({"error": "Invalid OTP"}, status=400)
+                return Response({"error": "Invalid or expired OTP"}, status=400)
 
         return Response(serializer.errors, status=400)
+
+
+# =======================
+# RESET PASSWORD
+# =======================
 class ResetPasswordView(APIView):
 
     def post(self, request):
@@ -96,19 +135,27 @@ class ResetPasswordView(APIView):
             email = serializer.validated_data['email']
             new_password = serializer.validated_data['new_password']
 
-            try:
-                user = User.objects.get(email=email)
-                user.set_password(new_password)
-                user.save()
-                return Response({"message": "Password reset successful"}, status=200)
-            except:
-                return Response({"error": "User not found"}, status=404)
+            user = User.objects.filter(email=email).first()
+
+            if not user:
+                return Response({"error": "User not found"}, status=400)
+
+            user.set_password(new_password)
+            user.save()
+
+            # Delete OTP after reset
+            PasswordResetOTP.objects.filter(user=user).delete()
+
+            return Response({"message": "Password reset successful"}, status=200)
 
         return Response(serializer.errors, status=400)
 
 
-
+# =======================
+# PROFILE (JWT Protected)
+# =======================
 class ProfileView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
