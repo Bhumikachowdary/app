@@ -17,6 +17,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import random
+import tempfile
 from reportlab.pdfgen import canvas
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -333,54 +334,46 @@ def calculate_safe_dose():
 # CONCENTRATION ANALYSIS
 # ===============================
 
-def generate_concentration_analysis():
+def generate_concentration_analysis(risk_percentage, molecular_weight, logp):
+
+    # 🔹 Dynamic optimal dose based on risk
+    if risk_percentage < 30:
+        human_optimal = "500-1000 mg"
+    elif risk_percentage < 70:
+        human_optimal = "300-700 mg"
+    else:
+        human_optimal = "100-400 mg"
+
+    # 🔹 Therapeutic index decreases with risk
+    therapeutic_index = round(6 - (risk_percentage / 20), 2)
+
+    # 🔹 Dose-response curve adjusts slightly
+    base_curve = [0, 25, 60, 80, 90, 95]
+
+    adjusted_curve = [
+        max(0, min(100, int(e - (risk_percentage / 5))))
+        for e in base_curve
+    ]
+
+    dose_response = [
+        {"dose": i * 20, "efficacy": adjusted_curve[i]}
+        for i in range(6)
+    ]
+
     return {
+        "human_optimal": human_optimal,
+        "therapeutic_index": therapeutic_index,
+        "dose_response": dose_response,
 
-        "human_optimal": "500-1000 mg",
-        "therapeutic_index": 4.8,
-
-        "dose_response": [
-            {"dose": 0, "efficacy": 0},
-            {"dose": 20, "efficacy": 25},
-            {"dose": 40, "efficacy": 60},
-            {"dose": 60, "efficacy": 80},
-            {"dose": 80, "efficacy": 90},
-            {"dose": 100, "efficacy": 95}
-        ],
-
-        "zebrafish_model": {
-            "min_effective": "0.5 μM",
-            "max_safe": "15 μM",
-            "optimal_range": "3-8 μM",
-            "ld50": "42 μM",
-            "therapeutic_index": 8.4
-        },
-
-        "mouse_model": {
-            "min_effective": "10 mg/kg",
-            "max_safe": "150 mg/kg",
-            "optimal_range": "30-80 mg/kg",
-            "ld50": "425 mg/kg",
-            "therapeutic_index": 5.3
-        },
-
-        "rat_model": {
-            "min_effective": "15 mg/kg",
-            "max_safe": "180 mg/kg",
-            "optimal_range": "40-100 mg/kg",
-            "ld50": "520 mg/kg",
-            "therapeutic_index": 5.2
-        },
-
+        # 🔹 Dynamic human model
         "human_model": {
-            "min_effective": "250 mg",
-            "max_safe": "2000 mg",
-            "optimal_range": "500-1000 mg",
+            "min_effective": f"{int(molecular_weight * 1.5)} mg",
+            "max_safe": f"{int(2000 - risk_percentage * 10)} mg",
+            "optimal_range": human_optimal,
             "ld50": "Not determined",
-            "therapeutic_index": 4.8
+            "therapeutic_index": therapeutic_index
         }
     }
-
 
 # ===============================
 # CREATE ANALYSIS
@@ -389,32 +382,47 @@ def generate_key_findings(organ_profile):
 
     findings = []
 
-    for organ in organ_profile:
+    # take top 5 organs with highest affinity
+    top_organs = sorted(
+        organ_profile,
+        key=lambda x: x["affinity"],
+        reverse=True
+    )[:5]
+
+    for organ in top_organs:
 
         name = organ["organ"]
         affinity = organ.get("affinity", 0)
 
-        # Pancreas (important for diabetes)
         if name == "Pancreas":
 
-            if affinity < 30:
+            if affinity < 40:
                 findings.append({
                     "title": "Pancreatic Safety",
-                    "description": "Low pancreatic toxicity predicted with minimal impact on insulin secretion."
+                    "description": "Low pancreatic toxicity predicted."
+                })
+            elif affinity < 70:
+                findings.append({
+                    "title": "Moderate Pancreatic Interaction",
+                    "description": "Possible pancreatic metabolic interaction."
                 })
             else:
                 findings.append({
-                    "title": "Pancreatic Risk",
-                    "description": "Potential pancreatic stress which may influence insulin regulation."
+                    "title": "Pancreatic Stress Risk",
+                    "description": "High pancreatic interaction predicted."
                 })
 
-        # Liver
         elif name == "Liver":
 
-            if affinity < 30:
+            if affinity < 40:
                 findings.append({
                     "title": "Low Hepatotoxicity",
                     "description": "Minimal liver toxicity risk detected."
+                })
+            elif affinity < 70:
+                findings.append({
+                    "title": "Moderate Liver Stress",
+                    "description": "Possible metabolic strain on liver enzymes."
                 })
             else:
                 findings.append({
@@ -422,12 +430,11 @@ def generate_key_findings(organ_profile):
                     "description": "Potential hepatotoxic effects observed."
                 })
 
-        # Kidney
         elif name == "Kidney":
 
-            if affinity < 30:
+            if affinity < 40:
                 findings.append({
-                    "title": "Reduced Renal Risk",
+                    "title": "Low Renal Risk",
                     "description": "Kidney toxicity appears minimal."
                 })
             else:
@@ -436,12 +443,11 @@ def generate_key_findings(organ_profile):
                     "description": "Possible kidney impact detected."
                 })
 
-        # Cardiac
         elif name == "Cardiac":
 
-            if affinity < 30:
+            if affinity < 40:
                 findings.append({
-                    "title": "Cardioprotective Profile",
+                    "title": "Cardiac Safety",
                     "description": "Low cardiovascular toxicity predicted."
                 })
             else:
@@ -450,20 +456,112 @@ def generate_key_findings(organ_profile):
                     "description": "Potential cardiovascular toxicity detected."
                 })
 
-    return findings[:3]
+        elif name == "Neural":
+
+            if affinity < 40:
+                findings.append({
+                    "title": "Low Neurotoxicity",
+                    "description": "Minimal neurological interaction predicted."
+                })
+            else:
+                findings.append({
+                    "title": "Neurological Interaction",
+                    "description": "Possible impact on neural signaling pathways."
+                })
+
+        elif name == "Gastro":
+
+            if affinity < 40:
+                findings.append({
+                    "title": "Low Gastrointestinal Risk",
+                    "description": "Minimal digestive system interaction predicted."
+                })
+            else:
+                findings.append({
+                    "title": "Gastrointestinal Interaction",
+                    "description": "Possible digestive tract interaction detected."
+                })
+
+    return findings
 class CreateAnalysisView(APIView):
+
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
+        # ✅ STEP 1: quick examples
+        recent_analyses = Analysis.objects.filter(
+            user=request.user,
+            result__isnull=False
+        ).order_by("-created_at")[:3]
 
+        quick_examples = []
+
+        for a in recent_analyses:
+            quick_examples.append({
+                "name": a.result.get("drug_overview", {}).get("name", "Unknown"),
+                "structure": a.smiles
+            })
+
+        if not quick_examples:
+            quick_examples = [
+                {"name": "Metformin", "structure": "CN(C)C(=N)NC(=N)N"},
+                {"name": "Gliclazide", "structure": "CC1=CC=C..."},
+                {"name": "Sitagliptin", "structure": "C1CN2C..."}
+            ]
+
+        # ✅ STEP 2: HANDLE INPUT
+        sdf_file = request.FILES.get("file")
         smiles = request.data.get("smiles")
+        mol = None
 
-        mol = Chem.MolFromSmiles(smiles)
+        # 👉 CASE 1: SDF FILE
+        if sdf_file:
+            # ✅ case-insensitive file type validation
+            if not sdf_file.name.lower().endswith(".sdf"):
+                return Response({"error": "Only .sdf files are allowed"}, status=400)
 
-        if not mol:
-            return Response({"error": "Invalid SMILES"}, status=400)
+            if sdf_file.size == 0:
+                return Response({"error": "Empty file uploaded"}, status=400)
 
+            tmp_path = None
+            try:
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.sdf') as tmp_file:
+                    for chunk in sdf_file.chunks():
+                        tmp_file.write(chunk)
+                    tmp_path = tmp_file.name
+                
+                # Read SDF from temporary file path
+                suppl = Chem.SDMolSupplier(tmp_path, removeHs=False)
+                mols = [m for m in suppl if m is not None]
+
+                if not mols:
+                    return Response({"error": "Invalid SDF file content"}, status=400)
+
+                mol = mols[0]
+                smiles = Chem.MolToSmiles(mol)
+
+            except Exception as e:
+                return Response({"error": f"Invalid SDF file: {str(e)}"}, status=400)
+
+            finally:
+                # ✅ Cleanup: Always delete temp file if it exists
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
+        # 👉 CASE 2: SMILES INPUT
+        elif smiles:
+            mol = Chem.MolFromSmiles(smiles)
+
+            if not mol:
+                return Response({"error": "Invalid SMILES"}, status=400)
+
+        # 👉 CASE 3: NOTHING PROVIDED
+        else:
+            return Response({"error": "No input provided"}, status=400)
+
+        # ✅ CONTINUE ANALYSIS
         analysis = Analysis.objects.create(
             user=request.user,
             smiles=smiles,
@@ -482,41 +580,40 @@ class CreateAnalysisView(APIView):
         probability = ml_model.predict_proba(fp)[0][1]
 
         risk_percentage = round(probability * 100, 2)
-
         level = "Low" if risk_percentage < 30 else "Moderate" if risk_percentage < 70 else "High"
 
         protein_data = get_protein_regulation(pubchem["name"])
 
         genes = [g["protein"] for g in protein_data["upregulated"]] + \
-              [g["protein"] for g in protein_data["downregulated"]]
+                [g["protein"] for g in protein_data["downregulated"]]
+
         organ_profile = get_organ_affinity(genes)
         primary_targets = get_primary_targets(organ_profile)
         key_findings = generate_key_findings(organ_profile)
-        concentration_data = generate_concentration_analysis()
+
+        concentration_data = generate_concentration_analysis(
+            risk_percentage,
+            molecular_weight,
+            logp
+        )
 
         side_effects = get_side_effects(pubchem["cid"])
 
-        # fallback if dataset has no effects
         if not side_effects:
             side_effects = [
-                "Nausea",
-                "Diarrhea",
-                "Headache",
-                "Dizziness",
-                "Weight change",
-                "Blood pressure change",
-                "Renal discomfort"
+                "Nausea", "Diarrhea", "Headache",
+                "Dizziness", "Weight change",
+                "Blood pressure change", "Renal discomfort"
             ]
 
         categorized = categorize_side_effects(side_effects, risk_percentage)
-        
 
         result_data = {
+            "quick_examples": quick_examples,
             "concentration_analysis": concentration_data,
             "primary_target_organs": primary_targets,
             "key_findings": key_findings,
             "ai_confidence": round((1 - probability) * 100, 1),
-            "ai_confidence_details": "Confidence based on trained toxicity classification model using molecular fingerprints.",
             "analysis_id": analysis.id,
 
             "drug_overview": {
@@ -532,7 +629,6 @@ class CreateAnalysisView(APIView):
             },
 
             "protein_analysis": protein_data,
-
             "organ_toxicity_profile": organ_profile,
 
             "side_effect_profile": {
@@ -555,174 +651,150 @@ class CreateAnalysisView(APIView):
 
 
 # ===============================
-# HISTORY
+# ANALYSIS HISTORY
 # ===============================
-
 class AnalysisHistoryView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
+        """Retrieve all analyses for the current user"""
         analyses = Analysis.objects.filter(
             user=request.user
-        ).order_by("-created_at")
-
+        ).order_by('-created_at')
+        
         serializer = AnalysisHistorySerializer(analyses, many=True)
-
         return Response(serializer.data)
 
 
 # ===============================
-# RESULT VIEW
+# ANALYSIS RESULT
 # ===============================
-
 class AnalysisResultView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, analysis_id):
+        """Retrieve a specific analysis result"""
+        try:
+            analysis = Analysis.objects.get(id=analysis_id, user=request.user)
+        except Analysis.DoesNotExist:
+            return Response(
+                {"error": "Analysis not found"},
+                status=404
+            )
 
-        analysis = Analysis.objects.get(
-            id=analysis_id,
-            user=request.user
-        )
-
-        return Response(analysis.result)
+        serializer = AnalysisHistorySerializer(analysis)
+        return Response(serializer.data)
 
 
 # ===============================
-# DASHBOARD
+# DASHBOARD SUMMARY
 # ===============================
-
-class DownloadReportView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, analysis_id):
-        analysis = Analysis.objects.get(
-            id=analysis_id,
-            user=request.user
-        )
-
-        file_path = generate_pdf_report(analysis)
-        return FileResponse(open(file_path, "rb"), as_attachment=True)
-
-
 class DashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        analyses = Analysis.objects.filter(
-            user=request.user,
-            result__isnull=False
-        )
+        try:
+            analyses = Analysis.objects.filter(
+                user=request.user,
+                result__isnull=False
+            )
 
-        total = analyses.count()
+            total = analyses.count()
+            safe = analyses.filter(risk_level="Low").count()
+            moderate = analyses.filter(risk_level="Moderate").count()
+            high = analyses.filter(risk_level="High").count()
 
-        safe = analyses.filter(risk_level="Low").count()
-        moderate = analyses.filter(risk_level="Moderate").count()
-        high = analyses.filter(risk_level="High").count()
+            recent = analyses.order_by("-created_at")[:3]
 
-        recent = analyses.order_by("-created_at")[:3]
+            recent_data = []
+            for a in recent:
+                recent_data.append({
+                    "drug_name": a.result.get("drug_overview", {}).get("name", "Unknown"),
+                    "smiles": a.smiles,
+                    "risk_level": a.result.get("risk_summary", {}).get("level", "Unknown"),
+                    "risk_score": a.result.get("risk_summary", {}).get("risk_percentage", 0),
+                    "created_at": a.created_at
+                })
 
-        recent_data = []
-        for a in recent:
-            recent_data.append({
-                "drug_name": a.result["drug_overview"]["name"],
-                "smiles": a.smiles,
-                "risk_level": a.result["risk_summary"]["level"],
-                "risk_score": a.result["risk_summary"]["risk_percentage"],
-                "created_at": a.created_at
+            return Response({
+                "doctor_name": request.user.username,
+
+                "statistics": {
+                    "total_analyses": total,
+                    "safe_count": safe,
+                    "moderate_count": moderate,
+                    "high_risk_count": high
+                },
+
+                "recent_analyses": recent_data
             })
 
-        return Response({
-
-            "doctor_name": request.user.username,
-
-            "statistics": {
-                "total_analyses": total,
-                "safe_count": safe,
-                "moderate_count": moderate,
-                "high_risk_count": high
-            },
-
-            "recent_analyses": recent_data
-        })
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
 
-def generate_pdf_report(analysis):
-    file_path = f"analysis_report_{analysis.id}.pdf"
+# ===============================
+# DOWNLOAD REPORT
+# ===============================
+class DownloadReportView(APIView):
 
-    c = canvas.Canvas(file_path)
+    permission_classes = [IsAuthenticated]
 
-    y = 800
+    def get(self, request, analysis_id):
+        """Generate and download a PDF report for an analysis"""
+        try:
+            analysis = Analysis.objects.get(id=analysis_id, user=request.user)
+        except Analysis.DoesNotExist:
+            return Response(
+                {"error": "Analysis not found"},
+                status=404
+            )
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "Diabetes Drug Toxicity Analysis Report")
+        if not analysis.result:
+            return Response(
+                {"error": "Analysis result not available"},
+                status=400
+            )
 
-    y -= 40
+        # Create PDF report
+        buffer = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf_path = buffer.name
+        buffer.close()
 
-    result = analysis.result
+        try:
+            c = canvas.Canvas(pdf_path)
+            c.setFont("Helvetica", 12)
+            
+            # Header
+            c.drawString(50, 750, f"Drug Toxicity Analysis Report")
+            c.drawString(50, 730, f"Analysis ID: {analysis.id}")
+            
+            # Drug Overview
+            drug_info = analysis.result.get('drug_overview', {})
+            c.drawString(50, 700, f"Drug Name: {drug_info.get('name', 'N/A')}")
+            c.drawString(50, 680, f"SMILES: {drug_info.get('smiles', 'N/A')[:50]}")
+            c.drawString(50, 660, f"Molecular Weight: {drug_info.get('molecular_weight', 'N/A')} g/mol")
+            
+            # Risk Summary
+            risk = analysis.result.get('risk_summary', {})
+            c.drawString(50, 630, f"Risk Level: {risk.get('level', 'N/A')}")
+            c.drawString(50, 610, f"Risk Percentage: {risk.get('risk_percentage', 'N/A')}%")
+            
+            c.save()
 
-    c.setFont("Helvetica", 12)
+            return FileResponse(
+                open(pdf_path, 'rb'),
+                as_attachment=True,
+                filename=f"analysis_{analysis.id}_report.pdf"
+            )
 
-    c.drawString(50, y, f"Drug Name: {result['drug_overview']['name']}")
-    y -= 20
-
-    c.drawString(50, y, f"SMILES: {analysis.smiles}")
-    y -= 20
-
-    c.drawString(50, y, f"Risk Level: {result['risk_summary']['level']}")
-    y -= 20
-
-    c.drawString(50, y, f"Risk Percentage: {result['risk_summary']['risk_percentage']}%")
-    y -= 30
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Target Organs")
-    y -= 20
-
-    for organ in result["organ_toxicity_profile"][:5]:
-
-        c.setFont("Helvetica", 12)
-        c.drawString(
-            50,
-            y,
-            f"{organ['organ']} - Affinity {organ['affinity']}%"
-        )
-        y -= 20
-
-    y -= 10
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Protein Regulation")
-    y -= 20
-
-    for p in result["protein_analysis"]["upregulated"]:
-
-        c.setFont("Helvetica", 12)
-        c.drawString(
-            50,
-            y,
-            f"{p['protein']} {p['effect']}"
-        )
-        y -= 20
-
-    y -= 10
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Overall Safety Score")
-    y -= 20
-
-    safety = result["side_effect_profile"]["overall_safety"]
-
-    c.setFont("Helvetica", 12)
-    c.drawString(
-        50,
-        y,
-        f"Score: {safety['score']} / 100"
-    )
-
-    c.save()
-
-    return file_path
+        except Exception as e:
+            return Response(
+                {"error": f"Error generating report: {str(e)}"},
+                status=500
+            )
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)

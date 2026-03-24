@@ -165,5 +165,25 @@ class ProfileView(APIView):
             "id": user.id,
             "username": user.username,
             "email": user.email,
+            "organization": getattr(user, "organization", ""),
+            "profile_image": request.build_absolute_uri(user.profile_image.url) if hasattr(user, "profile_image") and user.profile_image else None,
             "date_joined": user.date_joined,
         })
+
+    def put(self, request):
+        user = request.user
+
+        # ✅ update email
+        user.email = request.data.get("email", user.email)
+
+        # ✅ update organization (if exists)
+        if hasattr(user, "organization"):
+            user.organization = request.data.get("organization", user.organization)
+
+        # ✅ update profile image
+        if "profile_image" in request.FILES:
+            user.profile_image = request.FILES["profile_image"]
+
+        user.save()
+
+        return Response({"message": "Profile updated successfully"})

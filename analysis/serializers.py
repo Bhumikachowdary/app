@@ -2,28 +2,6 @@ from rest_framework import serializers
 from .models import Analysis
 
 
-class AnalysisCreateSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Analysis
-        fields = ['input_type', 'smiles', 'sdf_file']
-
-    def validate(self, data):
-        input_type = data.get('input_type')
-
-        if input_type == 'smiles' and not data.get('smiles'):
-            raise serializers.ValidationError("SMILES is required.")
-
-        if input_type == 'sdf' and not data.get('sdf_file'):
-            raise serializers.ValidationError("SDF file is required.")
-
-        return data
-
-
-from rest_framework import serializers
-from .models import Analysis
-
-
 class AnalysisHistorySerializer(serializers.ModelSerializer):
 
     name = serializers.SerializerMethodField()
@@ -60,10 +38,19 @@ class AnalysisHistorySerializer(serializers.ModelSerializer):
 
     def get_risk_score(self, obj):
         if obj.result:
-            return obj.result.get("risk_summary", {}).get("score")
+            return obj.result.get("risk_summary", {}).get("risk_percentage")  # ✅ FIXED
         return None
 
     def get_risk_color(self, obj):
         if obj.result:
-            return obj.result.get("risk_summary", {}).get("color")
+            level = obj.result.get("risk_summary", {}).get("level")
+
+            # Optional: set color manually
+            if level == "Low":
+                return "green"
+            elif level == "Moderate":
+                return "orange"
+            elif level == "High":
+                return "red"
+
         return None

@@ -4,6 +4,41 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import PasswordResetOTP
 import re
+from rest_framework import serializers
+from analysis.models import Analysis
+
+class AnalysisHistorySerializer(serializers.ModelSerializer):
+
+    name = serializers.SerializerMethodField()
+    risk_level = serializers.SerializerMethodField()
+    risk_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Analysis
+        fields = [
+            "id",
+            "name",
+            "smiles",
+            "risk_level",
+            "risk_score",
+            "status",
+            "created_at"
+        ]
+
+    def get_name(self, obj):
+        if obj.result:
+            return obj.result.get("drug_overview", {}).get("name")
+        return None
+
+    def get_risk_level(self, obj):
+        if obj.result:
+            return obj.result.get("risk_summary", {}).get("level")
+        return None
+
+    def get_risk_score(self, obj):
+        if obj.result:
+            return obj.result.get("risk_summary", {}).get("risk_percentage")
+        return None
 
 
 # ===============================
@@ -17,6 +52,27 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ['email', 'username', 'password']
 
+    # ✅ Email validation
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError(
+                "Email already registered."
+            )
+        return value
+
+    # ✅ Username validation
+    def validate_username(self, value):
+        if len(value) < 3:
+            raise serializers.ValidationError(
+                "Username must be at least 3 characters long."
+            )
+        if not value.isalnum():
+            raise serializers.ValidationError(
+                "Username should contain only letters and numbers."
+            )
+        return value
+
+    # ✅ Password validation (your rules)
     def validate_password(self, value):
 
         if len(value) < 8:
@@ -46,6 +102,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         return value
 
+    # ✅ Create user
     def create(self, validated_data):
         user = User.objects.create_user(
             email=validated_data['email'],
